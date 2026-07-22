@@ -115,6 +115,18 @@ $appDir = Join-Path $installDir 'app'
 $libDir = Join-Path $installDir 'lib'
 $vendorDir = Join-Path $installDir 'vendor'
 
+# Stop any already-running py-sensor from a previous install before touching its
+# files - otherwise pip's --upgrade can't replace a native DLL under vendor/
+# (e.g. PIL's _avif.pyd) while the running process still has it loaded, and
+# fails with a confusing WinError 5 "Access is denied" mid-install.
+$runningInstance = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" |
+    Where-Object { $_.CommandLine -like "*$appDir\main.py*" }
+if ($runningInstance) {
+    Write-Host "    - stopping the currently running py-sensor so its files can be updated..." -ForegroundColor DarkGray
+    $runningInstance | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 500
+}
+
 foreach ($dir in @($installDir, $appDir, $libDir, $vendorDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
