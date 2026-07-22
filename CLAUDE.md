@@ -37,7 +37,8 @@ The installed copy gets these from `vendor/` via `PYTHONPATH` (see launcher.ps1)
 ## Architecture
 
 ```
-install.ps1 / PySensor-Setup.bat   Local-checkout installer -> %LOCALAPPDATA%\py-sensor (see below)
+install.ps1 / PySensor-Setup.bat   Dual-mode installer -> %LOCALAPPDATA%\py-sensor (see below)
+manifest.json                        Declares current version + the file list install.ps1 deploys
 lib/PythonCheck.ps1                 Python+pip detection, shared by install.ps1 and app/launcher.ps1
 lib/CreateShortcut.ps1              Standalone .lnk creation helper, called both by install.ps1 (PowerShell)
                                      and app/startup.py (Python, via subprocess) -- .lnk is a COM format,
@@ -58,9 +59,9 @@ app/launcher.ps1                    Checks Python+pip, sets PYTHONPATH to vendor
 
 ```
 %LOCALAPPDATA%\py-sensor\
-  app\            <- copied from this repo's app/ each time install.ps1 runs (code, replaceable)
-  lib\            <- copied from this repo's lib/
-  vendor\         <- pip --target install of pystray (+ Pillow/pywin32, whatever pip resolves) - never
+  app\            <- deployed per manifest.json's app_files each time install.ps1 runs (code, replaceable)
+  lib\            <- deployed per manifest.json's app_files
+  vendor\         <- pip --target install of pystray (+ Pillow/etc, whatever pip resolves) - never
                      the global site-packages, never a bare `pip install` typed by the user
   config.json     <- NOT touched by install.ps1 at all; app/config.py creates it with defaults the first
                      time it's read if missing, and never overwrites an existing one. This is what makes
@@ -69,6 +70,19 @@ app/launcher.ps1                    Checks Python+pip, sets PYTHONPATH to vendor
 %APPDATA%\...\Startup\py-sensor.lnk <- auto-launch at login (created by install.ps1; toggled by
                                         Settings -> app/startup.py after that)
 ```
+
+### Install.ps1 dual mode (ported from l10-manager)
+
+Exactly mirrors `l10-manager/install.ps1`'s `$LocalRoot` pattern: if `manifest.json` exists alongside the
+running script, it's a local checkout — read files/manifest straight off disk. Otherwise (downloaded
+standalone to `%TEMP%` by `PySensor-Setup.bat` or the README one-liner), fetch both from
+`https://raw.githubusercontent.com/MedrioJames/py-sensor/main/`. `Get-RepoBytes` abstracts the two byte
+sources so the file-writing loop over `manifest.app_files` is identical either way — including the
+comma-prefixed `,$bytes` return (forces PowerShell to keep a byte array intact instead of unrolling it;
+l10-manager hit this for real with a zero-length file). `PySensor-Setup.bat` always downloads `install.ps1`
+fresh (matching `L10-Manager-Setup.bat` exactly), so double-clicking it after cloning the repo still tests
+the *published* version, not local edits — to test local changes, run `install.ps1` directly from the
+checkout instead.
 
 ## Concurrency model
 
@@ -131,10 +145,11 @@ Carried over from l10-manager, with one deliberate deviation:
 
 ## Not built yet
 
-- **GitHub repo + self-updater.** No repo exists yet (James chose to skip this for v1). When one does,
-  port `l10-manager/app-template/updater.py` and the `raw.githubusercontent.com` fetch branch of
-  `l10-manager/install.ps1` (the `$LocalRoot` vs. remote-manifest dual-mode pattern) — this repo's
-  `install.ps1` currently only has the local-checkout path.
+- **In-app self-updater.** The repo is now public at `github.com/MedrioJames/py-sensor` and install.ps1 can
+  fetch a fresh install from it (see "Install.ps1 dual mode" above), but nothing checks for updates *while
+  py-sensor is already running* — that's a separate piece from the fresh-install path. When building it,
+  port `l10-manager/app-template/updater.py` (manifest-version-compare + `apply_update()` pattern) and wire
+  a check into `tray.py`'s menu or `main.py`'s startup, same as L10's Help > Check for Updates.
 - **Home Assistant push.** `config.json`'s `home_assistant` block and Settings' grayed-out section are
   scaffolding only — no push logic exists. When building it: a background thread that posts to HA's REST
   API on sensor state *change* (not a poll loop) is the natural fit, given the "no unnecessary polling"

@@ -9,7 +9,20 @@ device on your network.
 
 ## Install
 
-Double-click **`PySensor-Setup.bat`**. It will:
+**Option A — download and double-click** (recommended): grab [`PySensor-Setup.bat`](PySensor-Setup.bat)
+and double-click it. No need to open PowerShell yourself first — the file does that for you.
+
+**Option B — copy/paste one-liner**: open PowerShell (Start menu → search "PowerShell") and paste this in:
+
+```powershell
+$p = "$env:TEMP\py-sensor-install.ps1"; iwr https://raw.githubusercontent.com/MedrioJames/py-sensor/main/install.ps1 -OutFile $p; powershell -ExecutionPolicy Bypass -File $p
+```
+
+Both options download the setup script to a real file and run it from disk, rather than piping it
+straight into evaluation — deliberately avoiding the "fileless" execution pattern that security tooling
+(rightly) treats as suspicious.
+
+Either way, the installer will:
 
 1. Check that a real Python 3 is installed (and guide you through installing it if not — it deliberately
    avoids the Microsoft Store's `python.exe`, which looks like Python but isn't).

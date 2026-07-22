@@ -1,0 +1,18 @@
+{
+  "version": "0.1.0",
+  "repo": "MedrioJames/py-sensor",
+  "branch": "main",
+  "app_files": [
+    { "src": "app/main.py", "dest": "app/main.py" },
+    { "src": "app/config.py", "dest": "app/config.py" },
+    { "src": "app/server.py", "dest": "app/server.py" },
+    { "src": "app/settings_ui.py", "dest": "app/settings_ui.py" },
+    { "src": "app/startup.py", "dest": "app/startup.py" },
+    { "src": "app/tray.py", "dest": "app/tray.py" },
+    { "src": "app/launcher.ps1", "dest": "app/launcher.ps1" },
+    { "src": "app/sensors/__init__.py", "dest": "app/sensors/__init__.py" },
+    { "src": "app/sensors/mic_cam.py", "dest": "app/sensors/mic_cam.py" },
+    { "src": "lib/PythonCheck.ps1", "dest": "lib/PythonCheck.ps1" },
+    { "src": "lib/CreateShortcut.ps1", "dest": "lib/CreateShortcut.ps1" }
+  ]
+}

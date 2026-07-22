@@ -1,13 +1,50 @@
 # py-sensor - Setup
 #
-# Builds the one, self-contained py-sensor install at %LOCALAPPDATA%\py-sensor
-# from THIS checkout. There's no GitHub repo yet, so unlike l10-manager's
-# install.ps1 this only has the local-checkout code path - add a
-# raw.githubusercontent.com fetch branch here (mirroring l10-manager's
-# install.ps1/manifest.json) once a repo exists to publish to. See CLAUDE.md.
+# Builds the one, self-contained py-sensor install at %LOCALAPPDATA%\py-sensor.
+# Runs from the copy-paste one-liner (downloads this file, then runs it with
+# -File), from PySensor-Setup.bat, or directly from a local clone of this
+# repo for development/testing - all three are handled below, mirroring
+# l10-manager's install.ps1 dual-mode pattern exactly.
 
 $ErrorActionPreference = 'Stop'
-$repoRoot = $PSScriptRoot
+
+# --- Repo / mode detection -------------------------------------------------
+
+$RepoOwner = 'MedrioJames'
+$RepoName = 'py-sensor'
+$Branch = 'main'
+$RawBase = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
+
+$LocalRoot = $null
+if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'manifest.json'))) {
+    $LocalRoot = $PSScriptRoot
+}
+
+function Get-RepoBytes {
+    # ",$bytes" (comma-prefixed) forces PowerShell to return the byte array
+    # as-is rather than unrolling it - without this, a zero-length array (an
+    # empty file) comes back as $null to the caller, which then crashes
+    # WriteAllBytes. Same gotcha l10-manager's install.ps1 hit for real.
+    param([string]$RelativePath)
+    if ($LocalRoot) {
+        $bytes = [System.IO.File]::ReadAllBytes((Join-Path $LocalRoot $RelativePath))
+        return , $bytes
+    }
+    $tmp = [System.IO.Path]::Combine($env:TEMP, [System.IO.Path]::GetRandomFileName())
+    Invoke-WebRequest -Uri "$RawBase/$RelativePath" -OutFile $tmp -TimeoutSec 30
+    $bytes = [System.IO.File]::ReadAllBytes($tmp)
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    return , $bytes
+}
+
+function Get-Manifest {
+    if ($LocalRoot) {
+        return Get-Content (Join-Path $LocalRoot 'manifest.json') -Raw | ConvertFrom-Json
+    }
+    return Invoke-RestMethod -Uri "$RawBase/manifest.json" -TimeoutSec 15
+}
+
+# --- Banner ---------------------------------------------------------------
 
 Clear-Host
 Write-Host ""
@@ -15,12 +52,30 @@ Write-Host "  py-sensor - Setup" -ForegroundColor Cyan
 Write-Host "  ----------------------------------------------------" -ForegroundColor DarkCyan
 Write-Host ""
 
-# --- Step 1: Python + pip -----------------------------------------------
+$manifest = Get-Manifest
+Write-Host "  Version $($manifest.version)" -ForegroundColor DarkGray
+Write-Host ""
+
+# --- Step 1: Python + pip ---------------------------------------------
 
 Write-Host "  Step 1 of 3 - Checking Python" -ForegroundColor Cyan
 Write-Host ""
 
-. (Join-Path $repoRoot 'lib\PythonCheck.ps1')
+if ($LocalRoot) {
+    . (Join-Path $LocalRoot 'lib\PythonCheck.ps1')
+} else {
+    # install.ps1 is always launched via `-File` under -ExecutionPolicy Bypass
+    # (see PySensor-Setup.bat / the README one-liner) rather than piped into
+    # iex, so the whole process already runs under Bypass - dot-sourcing a
+    # downloaded file here works fine and doesn't need an in-memory eval
+    # trick. Deliberately avoiding fileless script evaluation (ScriptBlock::
+    # Create/iex on downloaded text): it's a heavily-signatured pattern for
+    # security tooling, even when the content itself is benign.
+    $tmpLib = [System.IO.Path]::Combine($env:TEMP, [System.IO.Path]::GetRandomFileName() + '.ps1')
+    Invoke-WebRequest -Uri "$RawBase/lib/PythonCheck.ps1" -OutFile $tmpLib -TimeoutSec 30
+    . $tmpLib
+    Remove-Item $tmpLib -Force -ErrorAction SilentlyContinue
+}
 
 $showMessage = {
     param($m)
@@ -64,13 +119,18 @@ foreach ($dir in @($installDir, $appDir, $libDir, $vendorDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
-Write-Host "    - copying app files..." -ForegroundColor DarkGray
-Copy-Item -Path (Join-Path $repoRoot 'app\*') -Destination $appDir -Recurse -Force
-Get-ChildItem -Path $appDir -Directory -Recurse -Filter '__pycache__' -ErrorAction SilentlyContinue |
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($file in $manifest.app_files) {
+    Write-Host "    - $($file.dest)" -ForegroundColor DarkGray
+    $destPath = Join-Path $installDir $file.dest
+    $destDir = Split-Path $destPath -Parent
+    if ($destDir -and -not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+    $bytes = Get-RepoBytes $file.src
+    [System.IO.File]::WriteAllBytes($destPath, $bytes)
+}
 
-Write-Host "    - copying lib files..." -ForegroundColor DarkGray
-Copy-Item -Path (Join-Path $repoRoot 'lib\*') -Destination $libDir -Recurse -Force
+Set-Content -Path (Join-Path $appDir 'version.txt') -Value $manifest.version -NoNewline
 
 Write-Host "    - installing the tray-icon component (pystray) into a private folder just for py-sensor..." -ForegroundColor DarkGray
 & $python.PythonExe -m pip install --upgrade --target $vendorDir pystray
