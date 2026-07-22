@@ -36,10 +36,23 @@ Either way, the installer will:
 Once running, look for its icon in your system tray (near the clock, may be under the "^" overflow arrow).
 Right-click it for **Settings** or **Exit**.
 
+### Installing with a specific port/API key
+
+`install.ps1` takes two optional parameters, for a tool (like DayHUD) that wants to hand a user a
+ready-to-go install rather than making them configure a port/key by hand afterward:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Port 8899 -ApiKey <a-generated-key>
+```
+
+These only ever seed a *brand-new* `config.json` — they're ignored if one already exists, so re-running
+the installer to pick up a code update never overrides settings you (or Settings) already changed.
+
 ## Settings
 
 - Enable/disable individual sensors (mic, camera).
 - Change the port the local server listens on (default `8765`).
+- Set or generate an API key (see "API" below) — blank by default, meaning no key is required.
 - Turn "launch at startup" on or off.
 - A Home Assistant section exists but is currently just a placeholder — that integration isn't built yet.
 
@@ -66,6 +79,13 @@ Right-click it for **Settings** or **Exit**.
 
 Every field is computed fresh on each request — there's no background polling loop and nothing to fall
 out of sync.
+
+### API key
+
+If Settings has an API key set, every request above must include it, either as a query parameter —
+`?key=<your-key>` (simplest for browser-based polling, since it doesn't trigger a CORS preflight) — or an
+`X-Api-Key` header. A missing or wrong key gets a `401`. Leave it blank (the default) to allow any local
+app to poll without one, same as before this existed.
 
 ## Uninstall
 

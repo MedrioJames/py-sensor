@@ -6,6 +6,7 @@ just brings the existing window forward instead of creating a second one
 firing twice before the Tk thread catches up).
 """
 
+import secrets
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -50,11 +51,32 @@ def open_settings(cfg, on_save):
     server_frame.pack(fill="x", **pad)
     ttk.Label(server_frame, text="Port:").grid(row=0, column=0, sticky="w", padx=8, pady=6)
     port_var = tk.StringVar(value=str(cfg["port"]))
-    ttk.Entry(server_frame, textvariable=port_var, width=8).grid(row=0, column=1, sticky="w", pady=6)
+    ttk.Entry(server_frame, textvariable=port_var, width=8).grid(
+        row=0, column=1, columnspan=2, sticky="w", pady=6
+    )
+
+    ttk.Label(server_frame, text="API key:").grid(row=1, column=0, sticky="w", padx=8, pady=6)
+    api_key_var = tk.StringVar(value=cfg.get("api_key", ""))
+    ttk.Entry(server_frame, textvariable=api_key_var, width=34).grid(
+        row=1, column=1, sticky="w", pady=6
+    )
+
+    def on_generate_key():
+        api_key_var.set(secrets.token_urlsafe(24))
+
+    ttk.Button(server_frame, text="Generate", command=on_generate_key).grid(
+        row=1, column=2, sticky="w", padx=(6, 8), pady=6
+    )
+
+    ttk.Label(
+        server_frame,
+        text="Leave blank to let any local app poll without a key.",
+        foreground="gray",
+    ).grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
 
     startup_var = tk.BooleanVar(value=startup.is_enabled())
     ttk.Checkbutton(server_frame, text="Launch at startup", variable=startup_var).grid(
-        row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 6)
+        row=3, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6)
     )
 
     # --- Home Assistant (scaffold only -- no push logic yet, see CLAUDE.md) ---
@@ -92,6 +114,7 @@ def open_settings(cfg, on_save):
 
         new_cfg = {
             "port": port,
+            "api_key": api_key_var.get().strip(),
             "sensors": {name: {"enabled": var.get()} for name, var in sensor_vars.items()},
             "launch_at_startup": startup_var.get(),
             "home_assistant": {

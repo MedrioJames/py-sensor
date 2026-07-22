@@ -63,9 +63,11 @@ app/launcher.ps1                    Checks Python+pip, sets PYTHONPATH to vendor
   lib\            <- deployed per manifest.json's app_files
   vendor\         <- pip --target install of pystray (+ Pillow/etc, whatever pip resolves) - never
                      the global site-packages, never a bare `pip install` typed by the user
-  config.json     <- NOT touched by install.ps1 at all; app/config.py creates it with defaults the first
-                     time it's read if missing, and never overwrites an existing one. This is what makes
-                     re-running install.ps1 (to pick up a code change) safe for settings.
+  config.json     <- app/config.py creates it with defaults the first time it's read if missing, and never
+                     overwrites an existing one. install.ps1 only ever writes to it once, at that same
+                     first-creation moment, to apply -Port/-ApiKey if given (see below) - a re-run against
+                     an existing config.json touches nothing, which is what makes re-running install.ps1
+                     (to pick up a code change) safe for settings.
   Start py-sensor.lnk               <- manual launch
 %APPDATA%\...\Startup\py-sensor.lnk <- auto-launch at login (created by install.ps1; toggled by
                                         Settings -> app/startup.py after that)
@@ -83,6 +85,14 @@ l10-manager hit this for real with a zero-length file). `PySensor-Setup.bat` alw
 fresh (matching `L10-Manager-Setup.bat` exactly), so double-clicking it after cloning the repo still tests
 the *published* version, not local edits — to test local changes, run `install.ps1` directly from the
 checkout instead.
+
+`install.ps1 -Port <n> -ApiKey <key>` exists so a caller (DayHUD) can generate a personalized installer per
+user rather than making them hand-configure a port/key afterward. Both are plain optional string params
+(int-parsed/validated in PowerShell, not typed `[int]` — an unsupplied `[int]` param silently defaults to
+`0`, indistinguishable from "not given"). When one is supplied and `config.json` doesn't exist yet, a short
+inline `python -c` snippet does the actual write — it imports the just-deployed `app/config.py` and calls
+its real `load_config()`/`save_config()` rather than re-implementing the default schema in PowerShell, so
+this can't drift out of sync with config.py as that schema evolves.
 
 ## Concurrency model
 
@@ -116,6 +126,18 @@ HTTP server (`ServerController.restart()`), since that requires rebinding the so
 - No background polling loop anywhere — every field is computed fresh per request (registry reads for
   mic/cam are cheap). This was a deliberate property of the original prototype worth preserving: nothing
   can fall out of sync with reality.
+- **API key (optional).** If `config.json`'s `api_key` is non-empty, `Handler._api_key_ok()` requires it on
+  every request via `?key=...` or an `X-Api-Key` header (checked before routing, so an unknown path with a
+  bad key still gets a 401, not a 404 — deliberately doesn't leak route existence to an unauthenticated
+  caller). Empty `api_key` (the default) means no auth at all, preserving the original zero-config prototype
+  behavior for anyone running py-sensor standalone. This exists specifically so wildcard CORS doesn't mean
+  "any web page on the machine can read mic/cam state" — a per-install random key (DayHUD generates one
+  client-side per download, see "Not built yet" below) is a real secret, unlike tightening CORS to a fixed
+  origin, which was considered and rejected as strictly weaker here (DayHUD's origin isn't necessarily
+  fixed/knowable in advance, and it wouldn't stop other things running as the same OS user anyway).
+  `do_OPTIONS` declares `Access-Control-Allow-Headers: X-Api-Key` so a browser client using the header form
+  isn't blocked by preflight; the query-param form skips preflight entirely and is the simpler choice for a
+  browser-based poller like DayHUD.
 
 ## Adding a sensor
 
@@ -155,6 +177,12 @@ Carried over from l10-manager, with one deliberate deviation:
   API on sensor state *change* (not a poll loop) is the natural fit, given the "no unnecessary polling"
   principle already established for the sensors themselves.
 - **DayHUD integration.** DayHUD's "Download the script" button still points at the old
-  `mic-cam-detector.py` prototype. Swapping it over to this repo's installer is a separate follow-up,
-  once this stands up on its own and (if James wants) a GitHub repo exists to point at. Don't touch the
-  DayHUD repo as a side effect of work here.
+  `mic-cam-detector.py` prototype (embedded as a JS string in `Index.html`, handed to the user via a Blob
+  download — see that repo's `Index.html` around `MIC_CAM_SCRIPT`/`downloadTextFile_`). The plan: DayHUD
+  generates a random per-install API key + picks a port client-side, then hands the user a customized
+  `PySensor-Setup.bat` whose one invocation line becomes
+  `powershell -File install.ps1 -Port <port> -ApiKey <key>` (both params already exist on this side — see
+  "Install.ps1 dual mode" above); DayHUD then polls `/api/state` with that same key going forward. DayHUD's
+  status-check code also needs to move from `http://127.0.0.1:8765/state` (flat `{mic,cam,active}`) to
+  `/api/state` (nested `{sensors:{mic:{...},cam:{...}},active}`). None of this is built on DayHUD's side yet
+  — don't touch the DayHUD repo as a side effect of work here; it's a separate follow-up conversation.

@@ -8,6 +8,7 @@ no cached/background-polled state to fall out of sync with reality.
 
 import json
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import config as config_module
@@ -32,6 +33,17 @@ def _state_snapshot(cfg):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _api_key_ok(self, cfg):
+        required = cfg.get("api_key", "")
+        if not required:
+            return True  # zero-config default: no key set, no auth required
+        supplied = self.headers.get("X-Api-Key")
+        if not supplied:
+            query = urllib.parse.urlparse(self.path).query
+            supplied = urllib.parse.parse_qs(query).get("key", [None])[0]
+        return supplied == required
+
+
     def _send_json(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
@@ -45,11 +57,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "X-Api-Key")
         self.end_headers()
 
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/") or "/"
         cfg = config_module.load_config()
+
+        if not self._api_key_ok(cfg):
+            self._send_json(401, {"ok": False, "error": "invalid or missing API key"})
+            return
 
         if path == "/api/state":
             self._send_json(200, _state_snapshot(cfg))

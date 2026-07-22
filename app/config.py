@@ -24,6 +24,9 @@ _lock = threading.Lock()
 def _defaults() -> dict:
     return {
         "port": DEFAULT_PORT,
+        # Empty = no auth required (today's zero-config default). When set,
+        # server.py requires it on every /api/* request -- see CLAUDE.md.
+        "api_key": "",
         "sensors": {name: {"enabled": True} for name in SENSORS},
         "launch_at_startup": True,
         "home_assistant": {
@@ -40,6 +43,7 @@ def _merge_defaults(cfg: dict) -> dict:
     new sensor or a new top-level setting) without disturbing what's there."""
     merged = _defaults()
     merged["port"] = cfg.get("port", merged["port"])
+    merged["api_key"] = cfg.get("api_key", merged["api_key"])
     merged["launch_at_startup"] = cfg.get("launch_at_startup", merged["launch_at_startup"])
 
     on_disk_sensors = cfg.get("sensors", {})

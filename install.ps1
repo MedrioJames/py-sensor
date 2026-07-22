@@ -5,6 +5,17 @@
 # -File), from PySensor-Setup.bat, or directly from a local clone of this
 # repo for development/testing - all three are handled below, mirroring
 # l10-manager's install.ps1 dual-mode pattern exactly.
+#
+# -Port / -ApiKey are optional and exist so a caller like DayHUD can generate
+# a customized install for a specific user (its own chosen port, a per-install
+# random key) rather than the zero-config defaults - see CLAUDE.md. Both only
+# ever seed a config.json that doesn't exist yet; an existing config.json
+# (a reinstall/update) is never touched, same as every other setting.
+
+param(
+    [string]$Port = '',
+    [string]$ApiKey = ''
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -110,10 +121,16 @@ Write-Host ""
 Write-Host "  Step 2 of 3 - Installing to %LOCALAPPDATA%\py-sensor" -ForegroundColor Cyan
 Write-Host ""
 
+if ($Port -ne '' -and ($Port -notmatch '^\d+$' -or [int]$Port -lt 1 -or [int]$Port -gt 65535)) {
+    Write-Host "  Ignoring invalid -Port value '$Port' (must be 1-65535) - using the default instead." -ForegroundColor Yellow
+    $Port = ''
+}
+
 $installDir = Join-Path $env:LOCALAPPDATA 'py-sensor'
 $appDir = Join-Path $installDir 'app'
 $libDir = Join-Path $installDir 'lib'
 $vendorDir = Join-Path $installDir 'vendor'
+$configPath = Join-Path $installDir 'config.json'
 
 # Stop any already-running py-sensor from a previous install before touching its
 # files - otherwise pip's --upgrade can't replace a native DLL under vendor/
@@ -123,7 +140,21 @@ $runningInstance = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR
     Where-Object { $_.CommandLine -like "*$appDir\main.py*" }
 if ($runningInstance) {
     Write-Host "    - stopping the currently running py-sensor so its files can be updated..." -ForegroundColor DarkGray
-    $runningInstance | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $stoppedIds = $runningInstance | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        $_.ProcessId
+    }
+    # Stop-Process returns once the process is gone, but Windows can take a
+    # moment longer to actually release its file/DLL handles (e.g. a loaded
+    # PIL .pyd under vendor/) - hit this for real as a flaky pip failure
+    # right after a plain fixed sleep here, so poll instead of guessing a
+    # duration.
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        $stillRunning = $stoppedIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }
+        if (-not $stillRunning) { break }
+        Start-Sleep -Milliseconds 200
+    }
     Start-Sleep -Milliseconds 500
 }
 
@@ -144,8 +175,43 @@ foreach ($file in $manifest.app_files) {
 
 Set-Content -Path (Join-Path $appDir 'version.txt') -Value $manifest.version -NoNewline
 
+if ((-not (Test-Path $configPath)) -and ($Port -ne '' -or $ApiKey -ne '')) {
+    # Reuses config.py's own load/save (rather than duplicating its default
+    # schema here in PowerShell) so this stays correct as that schema evolves.
+    # Written to a real temp .py file rather than passed inline via `-c` -
+    # PowerShell mangles embedded double-quotes when building a native
+    # command line from a string argument (cfg["port"] arrived at Python as
+    # cfg[port], a real bug hit while testing this), and a file sidesteps
+    # that whole class of quoting problem, matching the "run from a real
+    # file" pattern already used everywhere else in this repo.
+    Write-Host "    - applying the port/API key passed to this installer..." -ForegroundColor DarkGray
+    $seedCode = @'
+import sys
+sys.path.insert(0, sys.argv[3])
+import config
+cfg = config.load_config()
+if sys.argv[1]:
+    cfg["port"] = int(sys.argv[1])
+if sys.argv[2]:
+    cfg["api_key"] = sys.argv[2]
+config.save_config(cfg)
+'@
+    $tmpSeedScript = [System.IO.Path]::Combine($env:TEMP, [System.IO.Path]::GetRandomFileName() + '.py')
+    Set-Content -Path $tmpSeedScript -Value $seedCode -Encoding UTF8 -NoNewline
+    & $python.PythonExe $tmpSeedScript $Port $ApiKey $appDir
+    Remove-Item $tmpSeedScript -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host "    - installing the tray-icon component (pystray) into a private folder just for py-sensor..." -ForegroundColor DarkGray
-& $python.PythonExe -m pip install --upgrade --target $vendorDir pystray
+$pipAttempts = 3
+for ($attempt = 1; $attempt -le $pipAttempts; $attempt++) {
+    & $python.PythonExe -m pip install --upgrade --target $vendorDir pystray
+    if ($LASTEXITCODE -eq 0) { break }
+    if ($attempt -lt $pipAttempts) {
+        Write-Host "    - pip install hit a snag (attempt $attempt of $pipAttempts) - retrying..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 2
+    }
+}
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "  pip install failed - check your internet connection and try again." -ForegroundColor Red
