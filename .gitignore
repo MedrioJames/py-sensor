@@ -16,6 +16,11 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Exception: this repo's own top-level lib/ (PythonCheck.ps1, CreateShortcut.ps1) is real
+# project source, not a venv's lib/ dir -- the generic rule above would otherwise silently
+# swallow it (it did: lib/ was never actually pushed until this was added).
+!/lib/
+!/lib/**
 parts/
 sdist/
 var/
