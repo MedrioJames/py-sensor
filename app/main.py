@@ -6,7 +6,10 @@ thread. Tray menu callbacks marshal onto the Tk thread via root.after(0, ...)
 before touching Tk widgets or shared state -- see tray.py.
 """
 
+import logging
+import os
 import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
@@ -21,16 +24,52 @@ from tray import TrayIcon
 
 UPDATE_CHECK_STARTUP_DELAY_SECONDS = 10
 UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
+LOG_PATH = Path(os.environ["LOCALAPPDATA"]) / "py-sensor" / "py-sensor.log"
 
 server = ServerController()
 
 
+def _setup_crash_logging():
+    """Runs under pythonw.exe, which has no console -- an uncaught exception
+    anywhere (main thread, a background thread, or a Tk widget callback) is
+    otherwise completely invisible, with nothing to diagnose it by. Logs all
+    three to a real file instead."""
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        filename=LOG_PATH,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+    )
+
+    def log_main_thread_exception(exc_type, exc_value, exc_tb):
+        logging.critical("Unhandled exception on the main thread", exc_info=(exc_type, exc_value, exc_tb))
+
+    sys.excepthook = log_main_thread_exception
+
+    def log_background_thread_exception(args):
+        logging.critical(
+            "Unhandled exception on thread %r",
+            args.thread.name if args.thread else "?",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    threading.excepthook = log_background_thread_exception
+
+
 def main():
+    _setup_crash_logging()
+    logging.info("py-sensor starting (v%s)", updater.local_version())
+
     cfg = config_module.load_config()
     server.start(cfg["port"])
 
     root = tk.Tk()
     root.withdraw()
+
+    def log_tk_callback_exception(exc_type, exc_value, exc_tb):
+        logging.critical("Unhandled exception in a Tk callback", exc_info=(exc_type, exc_value, exc_tb))
+
+    root.report_callback_exception = log_tk_callback_exception
 
     def open_settings():
         current_cfg = config_module.load_config()
@@ -43,6 +82,7 @@ def main():
             server.restart(new_cfg["port"])
 
     def quit_app():
+        logging.info("py-sensor exiting (Exit/Update/Uninstall)")
         tray.stop()
         server.stop()
         root.quit()

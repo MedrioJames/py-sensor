@@ -195,6 +195,24 @@ Settings changes take effect immediately without a restart for anything sensor-r
 config + sensor state fresh on every request — see below); only a **port** change stops and restarts the
 HTTP server (`ServerController.restart()`), since that requires rebinding the socket.
 
+## Crash logging (`%LOCALAPPDATA%\py-sensor\py-sensor.log`)
+
+Runs under `pythonw.exe`, which has no console — an uncaught exception anywhere is otherwise invisible,
+with nothing to diagnose it by. `main.py`'s `_setup_crash_logging()` covers all three places one could
+happen: `sys.excepthook` (main thread), `threading.excepthook` (background threads — the update-check
+loop), and `root.report_callback_exception` (Tk widget callbacks — Settings' Save button, tray menu
+actions). Tkinter already catches an exception raised inside a callback and routes it through
+`report_callback_exception` without crashing the mainloop (confirmed by test, not just assumed) — this
+override just makes that landing somewhere durable instead of nowhere. `main()`/`quit_app()` also log a
+plain startup/exit line, so the log can distinguish a clean exit from an abrupt one (e.g. `Stop-Process
+-Force` during a reinstall/update — or, while testing this repo's own install/uninstall flow repeatedly,
+from another running instance getting killed out from under whoever had it open at the time).
+
+`settings_ui.py`'s Save button separately wraps just the `startup.enable()`/`disable()` call (the one
+subprocess call in that whole path, and so the one most likely to genuinely fail) in its own try/except —
+a shortcut-creation hiccup shows a specific error and still saves everything else, rather than surfacing as
+a generic logged exception with no explanation to the user in the moment.
+
 ## API (server.py)
 
 - `GET /api/state` → `{"ok": true, "sensors": {"mic": {"enabled": bool, "active": bool|null}, "cam": {...}}, "active": bool}`

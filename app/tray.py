@@ -16,14 +16,37 @@ from PIL import Image, ImageDraw
 
 
 def _make_icon_image():
-    """Generates a simple icon at runtime -- no shipped .ico/.png asset to
-    keep in sync as the app evolves."""
+    """Generates a microphone glyph at runtime -- no shipped .ico/.png asset
+    to keep in sync as the app evolves. An earlier version drew just a
+    circle-plus-stem, which at actual tray size (scaled down to ~16px) reads
+    as a keyhole, not a mic -- this one adds the stand arc and base a real
+    mic glyph needs to stay legible that small."""
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.ellipse((4, 4, size - 4, size - 4), fill=(37, 99, 235, 255))
-    draw.ellipse((size * 0.30, size * 0.16, size * 0.70, size * 0.56), fill=(255, 255, 255, 255))
-    draw.rectangle((size * 0.42, size * 0.52, size * 0.58, size * 0.80), fill=(255, 255, 255, 255))
+
+    white = (255, 255, 255, 255)
+    cx = size / 2
+
+    # Capsule (the mic head)
+    cap_w, cap_h = size * 0.20, size * 0.30
+    cap_top = size * 0.20
+    cap_box = (cx - cap_w / 2, cap_top, cx + cap_w / 2, cap_top + cap_h)
+    draw.rounded_rectangle(cap_box, radius=cap_w / 2, fill=white)
+
+    # Stand (open arc cradling the capsule's base)
+    r = size * 0.17
+    arc_cy = cap_top + cap_h - size * 0.03
+    arc_box = (cx - r, arc_cy - r, cx + r, arc_cy + r)
+    stroke = max(2, round(size * 0.06))
+    draw.arc(arc_box, start=0, end=180, fill=white, width=stroke)
+
+    # Stem + base
+    stem_bottom = arc_cy + r + size * 0.08
+    draw.line((cx, arc_cy + r, cx, stem_bottom), fill=white, width=stroke)
+    base_half = size * 0.10
+    draw.line((cx - base_half, stem_bottom, cx + base_half, stem_bottom), fill=white, width=stroke)
     return img
 
 

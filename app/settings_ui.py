@@ -124,10 +124,20 @@ def open_settings(cfg, on_save):
             },
         }
 
-        if startup_var.get():
-            startup.enable()
-        else:
-            startup.disable()
+        try:
+            if startup_var.get():
+                startup.enable()
+            else:
+                startup.disable()
+        except Exception as exc:
+            # Whatever else changed above still gets saved below -- a
+            # shortcut-creation hiccup (e.g. a transient COM failure) isn't a
+            # reason to lose the rest of the settings too.
+            messagebox.showerror(
+                "py-sensor",
+                f"Saved your other settings, but couldn't update the \"launch at startup\" shortcut:\n{exc}",
+                parent=win,
+            )
 
         on_save(new_cfg)
         on_close()
