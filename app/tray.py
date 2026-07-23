@@ -16,11 +16,13 @@ from PIL import Image, ImageDraw
 
 
 def _make_icon_image():
-    """Generates a microphone glyph at runtime -- no shipped .ico/.png asset
-    to keep in sync as the app evolves. An earlier version drew just a
-    circle-plus-stem, which at actual tray size (scaled down to ~16px) reads
-    as a keyhole, not a mic -- this one adds the stand arc and base a real
-    mic glyph needs to stay legible that small."""
+    """Generates a computer/monitor glyph at runtime -- no shipped .ico/.png
+    asset to keep in sync as the app evolves. Deliberately not a microphone:
+    py-sensor monitors the computer as a whole (mic/cam are just the first
+    two sensors), so the icon shouldn't over-represent one of them -- a
+    monitor reads as "this machine," which stays accurate as more sensors get
+    added later. An earlier mic-glyph version is why this one was checked at
+    actual tray size (~16px) before shipping it, same as that one was."""
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -29,24 +31,23 @@ def _make_icon_image():
     white = (255, 255, 255, 255)
     cx = size / 2
 
-    # Capsule (the mic head)
-    cap_w, cap_h = size * 0.20, size * 0.30
-    cap_top = size * 0.20
-    cap_box = (cx - cap_w / 2, cap_top, cx + cap_w / 2, cap_top + cap_h)
-    draw.rounded_rectangle(cap_box, radius=cap_w / 2, fill=white)
+    # Screen
+    screen_w, screen_h = size * 0.48, size * 0.34
+    top = size * 0.20
+    screen_box = (cx - screen_w / 2, top, cx + screen_w / 2, top + screen_h)
+    draw.rounded_rectangle(screen_box, radius=size * 0.035, fill=white)
 
-    # Stand (open arc cradling the capsule's base)
-    r = size * 0.17
-    arc_cy = cap_top + cap_h - size * 0.03
-    arc_box = (cx - r, arc_cy - r, cx + r, arc_cy + r)
-    stroke = max(2, round(size * 0.06))
-    draw.arc(arc_box, start=0, end=180, fill=white, width=stroke)
+    # Neck
+    neck_w, neck_h = size * 0.09, size * 0.07
+    neck_top = top + screen_h
+    draw.rectangle((cx - neck_w / 2, neck_top, cx + neck_w / 2, neck_top + neck_h), fill=white)
 
-    # Stem + base
-    stem_bottom = arc_cy + r + size * 0.08
-    draw.line((cx, arc_cy + r, cx, stem_bottom), fill=white, width=stroke)
-    base_half = size * 0.10
-    draw.line((cx - base_half, stem_bottom, cx + base_half, stem_bottom), fill=white, width=stroke)
+    # Foot
+    foot_w, foot_h = size * 0.30, size * 0.045
+    foot_top = neck_top + neck_h
+    draw.rounded_rectangle(
+        (cx - foot_w / 2, foot_top, cx + foot_w / 2, foot_top + foot_h), radius=foot_h / 2, fill=white
+    )
     return img
 
 
