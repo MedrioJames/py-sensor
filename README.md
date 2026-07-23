@@ -34,7 +34,7 @@ Either way, the installer will:
 5. Start it right away.
 
 Once running, look for its icon in your system tray (near the clock, may be under the "^" overflow arrow).
-Right-click it for **Settings** or **Exit**.
+Right-click it for **Settings**, **Check for Updates**, **Uninstall**, or **Exit**.
 
 ### Installing with a specific port/API key
 
@@ -87,7 +87,17 @@ If Settings has an API key set, every request above must include it, either as a
 `X-Api-Key` header. A missing or wrong key gets a `401`. Leave it blank (the default) to allow any local
 app to poll without one, same as before this existed.
 
+## Updates
+
+py-sensor checks GitHub for a newer released version shortly after it starts, and once a day after that
+while it keeps running — you'll only ever see a prompt if one's actually found, never a "you're up to
+date" popup out of nowhere. You can also check any time from the tray icon's **Check for Updates...**.
+Either way, updating always asks first; nothing installs itself without you clicking "Update now."
+
 ## Uninstall
 
-Exit py-sensor from its tray menu, delete the `%LOCALAPPDATA%\py-sensor` folder, and remove
-`py-sensor.lnk` from your Startup folder (`Win+R` → `shell:startup`) if it's still there.
+Right-click the tray icon → **Uninstall py-sensor...**, confirm, and it removes everything: stops the
+running instance, deletes the Startup shortcut, and removes the whole `%LOCALAPPDATA%\py-sensor` folder.
+
+If the app isn't running (or won't start), you can do the same thing directly: open
+`%LOCALAPPDATA%\py-sensor` and double-click `Uninstall.bat`.

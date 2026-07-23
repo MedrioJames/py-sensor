@@ -28,10 +28,12 @@ def _make_icon_image():
 
 
 class TrayIcon:
-    def __init__(self, root, get_port, open_settings, quit_app):
+    def __init__(self, root, get_port, open_settings, check_for_updates, uninstall, quit_app):
         self._root = root
         self._get_port = get_port
         self._open_settings = open_settings
+        self._check_for_updates = check_for_updates
+        self._uninstall = uninstall
         self._quit_app = quit_app
         self._icon = pystray.Icon(
             "py-sensor",
@@ -40,6 +42,10 @@ class TrayIcon:
             menu=pystray.Menu(
                 pystray.MenuItem("Settings...", self._on_settings),
                 pystray.MenuItem("Open dashboard", self._on_open_dashboard),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Check for Updates...", self._on_check_for_updates),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Uninstall py-sensor...", self._on_uninstall),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Exit", self._on_exit),
             ),
@@ -59,6 +65,12 @@ class TrayIcon:
     def _on_open_dashboard(self, icon, item):
         url = f"http://127.0.0.1:{self._get_port()}/api/state"
         self._root.after(0, lambda: webbrowser.open(url))
+
+    def _on_check_for_updates(self, icon, item):
+        self._root.after(0, self._check_for_updates)
+
+    def _on_uninstall(self, icon, item):
+        self._root.after(0, self._uninstall)
 
     def _on_exit(self, icon, item):
         self._root.after(0, self._quit_app)

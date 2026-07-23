@@ -6,12 +6,21 @@ thread. Tray menu callbacks marshal onto the Tk thread via root.after(0, ...)
 before touching Tk widgets or shared state -- see tray.py.
 """
 
+import subprocess
+import threading
+import time
 import tkinter as tk
+from pathlib import Path
+from tkinter import messagebox
 
 import config as config_module
 import settings_ui
+import updater
 from server import ServerController
 from tray import TrayIcon
+
+UPDATE_CHECK_STARTUP_DELAY_SECONDS = 10
+UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
 
 server = ServerController()
 
@@ -38,8 +47,82 @@ def main():
         server.stop()
         root.quit()
 
-    tray = TrayIcon(root, get_port=lambda: server.port, open_settings=open_settings, quit_app=quit_app)
+    def prompt_update_available(release):
+        tag = release.get("tag_name", "?")
+        if messagebox.askyesno(
+            "py-sensor", f"A new version of py-sensor is available: {tag}.\n\nUpdate now?"
+        ):
+            try:
+                updater.apply_update(release)
+            except Exception as exc:
+                messagebox.showerror("py-sensor", f"Couldn't start the update:\n{exc}")
+                return
+            quit_app()
+
+    def check_for_updates_manual():
+        release = updater.check_for_update()
+        if release:
+            prompt_update_available(release)
+        else:
+            messagebox.showinfo("py-sensor", f"You're up to date (v{updater.local_version()}).")
+
+    def background_update_loop():
+        # Runs once shortly after startup, then once a day for as long as
+        # the app keeps running. Only ever *notifies* on a background find --
+        # applying always requires the user's explicit yes, matching this
+        # project's "no silent/unattended system changes" rule; a manual
+        # check (above) additionally confirms "you're up to date" when
+        # there's nothing new, which a silent background check deliberately
+        # doesn't do (that would mean a popup once a day, every day).
+        time.sleep(UPDATE_CHECK_STARTUP_DELAY_SECONDS)
+        while True:
+            release = updater.check_for_update()
+            if release:
+                root.after(0, lambda r=release: prompt_update_available(r))
+            time.sleep(UPDATE_CHECK_INTERVAL_SECONDS)
+
+    def uninstall():
+        if updater.is_dev_checkout():
+            messagebox.showinfo(
+                "py-sensor",
+                "Uninstall isn't available when running from a dev checkout "
+                "(this would delete the git repo, not an install). Run the "
+                "installed copy under %LOCALAPPDATA%\\py-sensor instead.",
+            )
+            return
+        if not messagebox.askyesno(
+            "py-sensor",
+            "This will completely remove py-sensor from this computer, "
+            "including all settings. This can't be undone.\n\nContinue?",
+        ):
+            return
+        install_dir = Path(__file__).resolve().parent.parent
+        uninstall_script = install_dir / "Uninstall.ps1"
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(uninstall_script),
+                "-Confirmed",
+            ],
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+        quit_app()
+
+    tray = TrayIcon(
+        root,
+        get_port=lambda: server.port,
+        open_settings=open_settings,
+        check_for_updates=check_for_updates_manual,
+        uninstall=uninstall,
+        quit_app=quit_app,
+    )
     tray.start()
+
+    threading.Thread(target=background_update_loop, daemon=True).start()
 
     root.mainloop()
 

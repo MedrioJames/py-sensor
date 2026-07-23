@@ -11,10 +11,16 @@
 # random key) rather than the zero-config defaults - see CLAUDE.md. Both only
 # ever seed a config.json that doesn't exist yet; an existing config.json
 # (a reinstall/update) is never touched, same as every other setting.
+#
+# -Ref is what app/updater.py passes when applying an in-app update: a
+# specific released tag (e.g. "v0.3.0") to install from, instead of the
+# default "main" - so an update always lands exactly what that release
+# published, not whatever's since landed on main.
 
 param(
     [string]$Port = '',
-    [string]$ApiKey = ''
+    [string]$ApiKey = '',
+    [string]$Ref = 'main'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,8 +29,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoOwner = 'MedrioJames'
 $RepoName = 'py-sensor'
-$Branch = 'main'
-$RawBase = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch"
+$RawBase = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Ref"
 
 $LocalRoot = $null
 if ($PSScriptRoot -and (Test-Path (Join-Path $PSScriptRoot 'manifest.json'))) {
@@ -72,21 +77,38 @@ Write-Host ""
 Write-Host "  Step 1 of 3 - Checking Python" -ForegroundColor Cyan
 Write-Host ""
 
-if ($LocalRoot) {
-    . (Join-Path $LocalRoot 'lib\PythonCheck.ps1')
-} else {
-    # install.ps1 is always launched via `-File` under -ExecutionPolicy Bypass
-    # (see PySensor-Setup.bat / the README one-liner) rather than piped into
-    # iex, so the whole process already runs under Bypass - dot-sourcing a
-    # downloaded file here works fine and doesn't need an in-memory eval
-    # trick. Deliberately avoiding fileless script evaluation (ScriptBlock::
-    # Create/iex on downloaded text): it's a heavily-signatured pattern for
-    # security tooling, even when the content itself is benign.
+function Get-SharedScriptPath {
+    # Resolves a lib/*.ps1 to a real local path, downloading it to %TEMP%
+    # first if this is a standalone run - returns the path rather than
+    # dot-sourcing it directly, because dot-sourcing *inside* a function only
+    # adds definitions to that function's own scope in PowerShell, not the
+    # caller's; the actual `.` has to happen at the caller's scope, which is
+    # why every call site below is `. (Get-SharedScriptPath ...)`, never a
+    # dot-source hidden inside this function.
+    #
+    # install.ps1 is always launched via `-File` under -ExecutionPolicy
+    # Bypass (see PySensor-Setup.bat / the README one-liner) rather than
+    # piped into iex, so the whole process already runs under Bypass -
+    # dot-sourcing a downloaded file here works fine and doesn't need an
+    # in-memory eval trick. Deliberately avoiding fileless script evaluation
+    # (ScriptBlock::Create/iex on downloaded text): it's a heavily-signatured
+    # pattern for security tooling, even when the content itself is benign.
+    param([string]$RelativePath)
+    if ($LocalRoot) {
+        return (Join-Path $LocalRoot $RelativePath)
+    }
     $tmpLib = [System.IO.Path]::Combine($env:TEMP, [System.IO.Path]::GetRandomFileName() + '.ps1')
-    Invoke-WebRequest -Uri "$RawBase/lib/PythonCheck.ps1" -OutFile $tmpLib -TimeoutSec 30
-    . $tmpLib
-    Remove-Item $tmpLib -Force -ErrorAction SilentlyContinue
+    Invoke-WebRequest -Uri "$RawBase/$RelativePath" -OutFile $tmpLib -TimeoutSec 30
+    return $tmpLib
 }
+
+$pythonCheckPath = Get-SharedScriptPath 'lib\PythonCheck.ps1'
+. $pythonCheckPath
+if (-not $LocalRoot) { Remove-Item $pythonCheckPath -Force -ErrorAction SilentlyContinue }
+
+$stopInstancePath = Get-SharedScriptPath 'lib\StopRunningInstance.ps1'
+. $stopInstancePath
+if (-not $LocalRoot) { Remove-Item $stopInstancePath -Force -ErrorAction SilentlyContinue }
 
 $showMessage = {
     param($m)
@@ -136,26 +158,8 @@ $configPath = Join-Path $installDir 'config.json'
 # files - otherwise pip's --upgrade can't replace a native DLL under vendor/
 # (e.g. PIL's _avif.pyd) while the running process still has it loaded, and
 # fails with a confusing WinError 5 "Access is denied" mid-install.
-$runningInstance = Get-CimInstance Win32_Process -Filter "Name = 'python.exe' OR Name = 'pythonw.exe'" |
-    Where-Object { $_.CommandLine -like "*$appDir\main.py*" }
-if ($runningInstance) {
-    Write-Host "    - stopping the currently running py-sensor so its files can be updated..." -ForegroundColor DarkGray
-    $stoppedIds = $runningInstance | ForEach-Object {
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        $_.ProcessId
-    }
-    # Stop-Process returns once the process is gone, but Windows can take a
-    # moment longer to actually release its file/DLL handles (e.g. a loaded
-    # PIL .pyd under vendor/) - hit this for real as a flaky pip failure
-    # right after a plain fixed sleep here, so poll instead of guessing a
-    # duration.
-    $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline) {
-        $stillRunning = $stoppedIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue }
-        if (-not $stillRunning) { break }
-        Start-Sleep -Milliseconds 200
-    }
-    Start-Sleep -Milliseconds 500
+if (Stop-PySensorInstance -AppDir $appDir) {
+    Write-Host "    - stopped the currently running py-sensor so its files can be updated" -ForegroundColor DarkGray
 }
 
 foreach ($dir in @($installDir, $appDir, $libDir, $vendorDir)) {
