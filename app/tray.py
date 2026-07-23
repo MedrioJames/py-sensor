@@ -26,24 +26,33 @@ def _make_icon_image():
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.ellipse((4, 4, size - 4, size - 4), fill=(37, 99, 235, 255))
+    circle_box = (4, 4, size - 4, size - 4)
+    draw.ellipse(circle_box, fill=(37, 99, 235, 255))
+    circle_cy = (circle_box[1] + circle_box[3]) / 2
 
     white = (255, 255, 255, 255)
     cx = size / 2
 
-    # Screen
     screen_w, screen_h = size * 0.48, size * 0.34
-    top = size * 0.20
+    neck_w, neck_h = size * 0.09, size * 0.07
+    foot_w, foot_h = size * 0.30, size * 0.045
+
+    # Center the whole glyph (screen+neck+foot stacked) on the circle's own
+    # center, rather than the screen alone on a fixed offset -- an earlier
+    # version did the latter, which left the glyph sitting visibly above
+    # center once the neck+foot were added below it.
+    total_h = screen_h + neck_h + foot_h
+    top = circle_cy - total_h / 2
+
+    # Screen
     screen_box = (cx - screen_w / 2, top, cx + screen_w / 2, top + screen_h)
     draw.rounded_rectangle(screen_box, radius=size * 0.035, fill=white)
 
     # Neck
-    neck_w, neck_h = size * 0.09, size * 0.07
     neck_top = top + screen_h
     draw.rectangle((cx - neck_w / 2, neck_top, cx + neck_w / 2, neck_top + neck_h), fill=white)
 
     # Foot
-    foot_w, foot_h = size * 0.30, size * 0.045
     foot_top = neck_top + neck_h
     draw.rounded_rectangle(
         (cx - foot_w / 2, foot_top, cx + foot_w / 2, foot_top + foot_h), radius=foot_h / 2, fill=white
